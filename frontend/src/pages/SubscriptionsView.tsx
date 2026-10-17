@@ -232,7 +232,7 @@ export default function SubscriptionsView({ onDataChange }: Props) {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="font-bold text-lg text-foreground">¥{parseFloat(sub.amount).toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground">/月</div>
+                  <div className="text-xs text-muted-foreground">/{sub.billingCycle === 'yearly' ? '年' : sub.billingCycle === 'quarterly' ? '季' : '月'}</div>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
                   <Button variant="ghost" size="icon" className="cursor-pointer h-8 w-8" onClick={() => openEdit(sub)}>

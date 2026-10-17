@@ -2,10 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Sparkles, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { apiService } from '@/lib/api';
 import type { ChatMessage } from '@shared/types/api';
+import { CATEGORIES, BILLING_CYCLES } from '@shared/types/api';
 
 const SYSTEM_PROMPT = `你是一个智能记账助手，专门帮助用户管理软件订阅支出、分析消费规律、提供节省建议。请用中文回答，语言简洁友好。当用户询问订阅相关问题时，提供具体可执行的建议。`;
 
@@ -15,6 +15,23 @@ const QUICK_PROMPTS = [
   '如何制定合理的订阅预算？',
   '我的订阅费用偏高吗？',
 ];
+
+async function buildSystemPrompt(): Promise<string> {
+  try {
+    const [subRes, budgetRes] = await Promise.all([apiService.getSubscriptions(), apiService.getBudget()]);
+    const subs = subRes.success ? subRes.data : [];
+    if (subs.length === 0) return `${SYSTEM_PROMPT}\n\n用户目前还没有任何订阅记录。`;
+    const lines = subs.map(s => {
+      const cat = CATEGORIES.find(c => c.value === s.category)?.label || s.category;
+      const cycle = BILLING_CYCLES.find(b => b.value === s.billingCycle)?.label || s.billingCycle;
+      return `- ${s.name}｜${cat}｜¥${s.amount}/${cycle}｜状态:${s.status}｜下次扣款:${s.nextBillingDate}`;
+    });
+    const limit = budgetRes.success && budgetRes.data ? budgetRes.data.monthlyLimit : '500';
+    return `${SYSTEM_PROMPT}\n\n以下是用户当前的订阅数据，请基于这些数据回答：\n${lines.join('\n')}\n月度预算上限：¥${limit}`;
+  } catch {
+    return SYSTEM_PROMPT;
+  }
+}
 
 let _msgCounter = 0;
 
@@ -53,7 +70,8 @@ export default function AIChatView() {
     setIsStreaming(true);
 
     try {
-      await apiService.sendChatMessage(trimmed, SYSTEM_PROMPT, (chunk) => {
+      const prompt = await buildSystemPrompt();
+      await apiService.sendChatMessage(trimmed, prompt, (chunk) => {
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id ? { ...m, content: m.content + chunk } : m
         ));

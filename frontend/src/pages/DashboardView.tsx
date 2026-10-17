@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { apiService } from '@/lib/api';
 import type { Subscription } from '@shared/types/api';
 import { CATEGORIES } from '@shared/types/api';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 
 const CATEGORY_ICONS: Record<string, string> = {
   entertainment: '🎬', productivity: '💼', education: '📚',
@@ -32,11 +32,35 @@ function getUpcomingDays(dateStr: string): number {
   return diff;
 }
 
-interface Props {
-  refreshKey?: number;
+function buildProjection(subs: Subscription[]) {
+  const now = new Date();
+  const buckets = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    return { label: `${d.getMonth() + 1}月`, total: 0 };
+  });
+  subs.forEach(s => {
+    const step = s.billingCycle === 'yearly' ? 12 : s.billingCycle === 'quarterly' ? 3 : 1;
+    const amt = parseFloat(s.amount);
+    const d = new Date(s.nextBillingDate);
+    if (isNaN(d.getTime()) || isNaN(amt)) return;
+    let guard = 0;
+    while (guard < 100) {
+      guard += 1;
+      const idx = (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth();
+      if (idx >= 6) break;
+      if (idx >= 0) buckets[idx].total += amt;
+      d.setMonth(d.getMonth() + step);
+    }
+  });
+  return buckets;
 }
 
-export default function DashboardView({ refreshKey }: Props) {
+interface Props {
+  refreshKey?: number;
+  onGoSubscriptions?: () => void;
+}
+
+export default function DashboardView({ refreshKey, onGoSubscriptions }: Props) {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [monthlyLimit, setMonthlyLimit] = useState(500);
   const [loading, setLoading] = useState(true);
@@ -89,6 +113,8 @@ export default function DashboardView({ refreshKey }: Props) {
     .sort((a, b) => getMonthlyAmount(b) - getMonthlyAmount(a))
     .slice(0, 5);
 
+  const projection = buildProjection(activeSubscriptions);
+
   const handleSaveBudget = async () => {
     const val = parseFloat(budgetInput);
     if (isNaN(val) || val <= 0) { toast.error('请输入有效金额'); return; }
@@ -117,6 +143,21 @@ export default function DashboardView({ refreshKey }: Props) {
 
   return (
     <div className="space-y-6">
+      {subscriptions.length === 0 && (
+        <Card>
+          <CardContent className="p-6 flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+            <div className="text-4xl">🧾</div>
+            <div className="flex-1">
+              <p className="font-semibold text-foreground">还没有订阅记录</p>
+              <p className="text-sm text-muted-foreground mt-1">添加你的第一笔扣款记录，系统将自动生成支出分析、续费提醒与预算预警。</p>
+            </div>
+            {onGoSubscriptions && (
+              <Button onClick={onGoSubscriptions} className="cursor-pointer min-h-[44px]">去添加订阅</Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card className="min-h-[110px]">
@@ -228,7 +269,7 @@ export default function DashboardView({ refreshKey }: Props) {
                         <Cell key={index} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => [`¥${value.toFixed(2)}`, '月度支出']} />
+                    <Tooltip formatter={(value) => [`¥${Number(value).toFixed(2)}`, '月度支出']} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="grid grid-cols-2 gap-1.5 mt-2">
@@ -258,7 +299,7 @@ export default function DashboardView({ refreshKey }: Props) {
                 <BarChart data={topSpending.map(s => ({ name: s.name.length > 8 ? s.name.slice(0, 8) + '...' : s.name, amount: getMonthlyAmount(s) }))} layout="vertical" margin={{ left: 0, right: 20 }}>
                   <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `¥${v}`} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={70} />
-                  <Tooltip formatter={(v: number) => [`¥${v.toFixed(2)}`, '月度金额']} />
+                  <Tooltip formatter={(v) => [`¥${Number(v).toFixed(2)}`, '月度金额']} />
                   <Bar dataKey="amount" fill="oklch(0.5 0.2 250)" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -266,6 +307,28 @@ export default function DashboardView({ refreshKey }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Projection Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">未来 6 个月预计支出</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activeSubscriptions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">暂无活跃订阅</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={projection} margin={{ left: 0, right: 10 }}>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `¥${v}`} width={50} />
+                <Tooltip formatter={(v) => [`¥${Number(v).toFixed(2)}`, '预计支出']} />
+                <Bar dataKey="total" fill="oklch(0.5 0.2 250)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">按各订阅的扣款周期与下次扣款日期推算，预算上限 ¥{monthlyLimit}/月。</p>
+        </CardContent>
+      </Card>
 
       {/* Budget Dialog */}
       <Dialog open={budgetDialogOpen} onOpenChange={setBudgetDialogOpen}>

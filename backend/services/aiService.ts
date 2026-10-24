@@ -83,9 +83,100 @@ class AIService {
   private baseUrl: string;
 
   constructor() {
-    this.apiKey = process.env.OMNIFLOW_API_KEY;
-    this.baseUrl =
-      process.env.OMNIFLOW_API_BASE_URL || 'https://app.omniflowai.com/api';
+    this.apiKey = process.env.OMNIFLOW_API_KEY || '';
+    this.baseUrl = process.env.OMNIFLOW_API_BASE_URL || 'https://app.omniflowai.com/api';
+  }
+
+  private isOmniflowConfigured(): boolean {
+    return Boolean(this.apiKey && this.apiKey.trim() && this.baseUrl && this.baseUrl.trim());
+  }
+
+  private parseSubscriptionSummary(systemPrompt?: string): {
+    totalMonthly: number;
+    count: number;
+    items: Array<{ name: string; category: string; amount: number; cycle: string; status: string }>; 
+    budget: number;
+  } {
+    const items: Array<{ name: string; category: string; amount: number; cycle: string; status: string }> = [];
+    let totalMonthly = 0;
+    let budget = 500;
+
+    if (!systemPrompt) {
+      return { totalMonthly, count: 0, items, budget };
+    }
+
+    const budgetMatch = systemPrompt.match(/月度预算上限：¥\s*([0-9]+(?:\.\d+)?)/);
+    if (budgetMatch?.[1]) {
+      budget = Number(budgetMatch[1]);
+    }
+
+    const lines = systemPrompt
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '));
+
+    lines.forEach((line) => {
+      const cleaned = line.replace(/^-\s*/, '');
+      const parts = cleaned.split('｜');
+      if (parts.length < 5) return;
+
+      const name = parts[0]?.trim() || '订阅';
+      const category = parts[1]?.trim() || '其他';
+      const amountPart = parts[2]?.trim() || '¥0/月';
+      const status = (parts[3] || '').replace(/^状态:/, '').trim();
+      const cycleMatch = amountPart.match(/¥\s*([0-9]+(?:\.\d+)?)\s*\/\s*(月|季|年|周)/);
+      const amount = Number(cycleMatch?.[1] || amountPart.replace(/[^0-9.]/g, '') || '0');
+      const cycle = cycleMatch?.[2] || '月';
+
+      let monthlyValue = amount;
+      if (cycle === '季') monthlyValue = amount / 3;
+      if (cycle === '年') monthlyValue = amount / 12;
+      if (cycle === '周') monthlyValue = amount * 4.33;
+
+      totalMonthly += monthlyValue;
+      items.push({ name, category, amount: monthlyValue, cycle, status });
+    });
+
+    return { totalMonthly, count: items.length, items, budget };
+  }
+
+  private async generateLocalFallbackReply(message: string, systemPrompt?: string): Promise<string> {
+    const msg = message.toLowerCase();
+    const summary = this.parseSubscriptionSummary(systemPrompt);
+
+    if (!summary.count) {
+      return '我已在本地模式下处理了你的问题。当前还没有可分析的订阅数据，建议先添加至少一项订阅记录，再让我帮你做支出分析。';
+    }
+
+    const sorted = [...summary.items].sort((a, b) => b.amount - a.amount);
+    const top = sorted.slice(0, 3);
+    const total = summary.totalMonthly;
+    const overBudget = total > summary.budget;
+    const avg = summary.count ? total / summary.count : 0;
+
+    if (msg.includes('取消') || msg.includes('冗余') || msg.includes('减少')) {
+      const suggestions = top.map((item, index) => `${index + 1}. ${item.name}（约 ¥${item.amount.toFixed(0)}/月，分类：${item.category}）`);
+      return `我先给你一个简版优化建议：\n\n当前共有 ${summary.count} 个订阅，月均约 ¥${avg.toFixed(0)}，总计约 ¥${total.toFixed(0)}/月。\n预算上限是 ¥${summary.budget}，${overBudget ? '已超预算，需要优先处理高频支出。' : '还在预算范围内，可适度优化。'}\n\n优先检查：\n${suggestions.join('\n')}\n\n建议按“费用高 + 频次低 + 使用率不高”的顺序考虑取消或替代，先从前 2-3 项入手，通常最容易降本。`;
+    }
+
+    if (msg.includes('预算') || msg.includes('偏高') || msg.includes('超支')) {
+      return `本月订阅预算状况：\n- 当前月均订阅支出：¥${total.toFixed(0)}\n- 预算上限：¥${summary.budget}\n- 预算差额：¥${(summary.budget - total).toFixed(0)}\n\n${overBudget ? '当前已经超出预算，建议先压缩高成本项目，优先处理前 2 个大头订阅。' : '目前仍在预算内，建议保留现有结构并观察是否有重复订阅。'}`;
+    }
+
+    if (msg.includes('分析') || msg.includes('支出') || msg.includes('情况') || msg.includes('总结')) {
+      const topNames = top.map((item) => `${item.name}（¥${item.amount.toFixed(0)}/月）`).join('、');
+      return `我已根据当前订阅数据做了简要分析：\n\n- 订阅总数：${summary.count}\n- 月度估算支出：¥${total.toFixed(0)}\n- 平均每项：¥${avg.toFixed(0)}\n- 主要支出：${topNames}\n\n从消费结构看，${top[0]?.name || '当前主力订阅'} 是最大的支出项。若你希望进一步压缩成本，我可以直接给你一份优先级排序。`;
+    }
+
+    return `我已读取到你当前的订阅记录。当前一共 ${summary.count} 个订阅，月均支出约 ¥${avg.toFixed(0)}，总额约 ¥${total.toFixed(0)}。\n\n其中 ${top[0]?.name || '首要订阅'} 贡献了最大金额，建议优先检查它是否真的必要。若你愿意，我可以继续帮你做预算优化或取消建议。`;
+  }
+
+  private async *streamText(text: string): AsyncGenerator<string, void, unknown> {
+    const chunkSize = 18;
+    for (let i = 0; i < text.length; i += chunkSize) {
+      yield text.slice(i, i + chunkSize);
+      await new Promise((resolve) => setTimeout(resolve, 18));
+    }
   }
 
   /**
@@ -94,6 +185,30 @@ class AIService {
   async chatCompletion(
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
+    if (!this.isOmniflowConfigured()) {
+      const content = await this.generateLocalFallbackReply(
+        request.messages.find((message) => message.role === 'user')?.content || '分析我的订阅支出情况',
+        request.messages.find((message) => message.role === 'system')?.content,
+      );
+
+      return {
+        id: 'local-fallback',
+        object: 'chat.completion',
+        created: Date.now(),
+        model: process.env.LLM_MODEL_NAME || DEFAULT_MODEL_NAME,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content },
+          finish_reason: 'stop',
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+      };
+    }
+
     try {
       const response = await axios.post(
         `${this.baseUrl}/v1/chat`,
@@ -114,7 +229,27 @@ class AIService {
       return response.data;
     } catch (error) {
       console.error('AI Service Error:', error);
-      throw new Error(`AI service request failed: ${error}`);
+      const fallbackContent = await this.generateLocalFallbackReply(
+        request.messages.find((message) => message.role === 'user')?.content || '分析我的订阅支出情况',
+        request.messages.find((message) => message.role === 'system')?.content,
+      );
+
+      return {
+        id: 'local-fallback',
+        object: 'chat.completion',
+        created: Date.now(),
+        model: process.env.LLM_MODEL_NAME || DEFAULT_MODEL_NAME,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: fallbackContent },
+          finish_reason: 'stop',
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+      };
     }
   }
 
@@ -124,6 +259,15 @@ class AIService {
   async *chatCompletionStream(
     request: ChatCompletionRequest,
   ): AsyncGenerator<string, void, unknown> {
+    if (!this.isOmniflowConfigured()) {
+      const content = await this.generateLocalFallbackReply(
+        request.messages.find((message) => message.role === 'user')?.content || '分析我的订阅支出情况',
+        request.messages.find((message) => message.role === 'system')?.content,
+      );
+      yield* this.streamText(content);
+      return;
+    }
+
     try {
       const response = await axios.post(
         `${this.baseUrl}/v1/chat`,
@@ -171,7 +315,11 @@ class AIService {
       }
     } catch (error) {
       console.error('AI Service Streaming Error:', error);
-      throw new Error(`AI service streaming request failed: ${error}`);
+      const fallbackContent = await this.generateLocalFallbackReply(
+        request.messages.find((message) => message.role === 'user')?.content || '分析我的订阅支出情况',
+        request.messages.find((message) => message.role === 'system')?.content,
+      );
+      yield* this.streamText(fallbackContent);
     }
   }
 
@@ -201,7 +349,7 @@ class AIService {
             .map((result, idx) => `[${idx + 1}] ${result.text}`)
             .join('\n\n');
 
-          enhancedSystemPrompt = `${systemPrompt || 'You are a helpful assistant.'}\n\nUse the following information from the knowledge base to answer the question:\n\n${context}\n\nIf the information provided doesn't contain the answer, say so clearly.`;
+          enhancedSystemPrompt = `${systemPrompt || 'You are a helpful assistant.'}\n\nUse the following information from the knowledge base to answer the question:\n\n${context}\n\nIf the information is insufficient, answer based on general knowledge and be clear about limitations.`;
         }
       } catch (error) {
         const kbErrorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -268,7 +416,7 @@ class AIService {
             .map((result, idx) => `[${idx + 1}] ${result.text}`)
             .join('\n\n');
 
-          enhancedSystemPrompt = `${systemPrompt || 'You are a helpful assistant.'}\n\nUse the following information from the knowledge base to answer the question:\n\n${context}\n\nIf the information provided doesn't contain the answer, say so clearly.`;
+          enhancedSystemPrompt = `${systemPrompt || 'You are a helpful assistant.'}\n\nUse the following information from the knowledge base to answer the question:\n\n${context}\n\nIf the information is insufficient, answer based on general knowledge and be clear about limitations.`;
         }
       } catch (error) {
         const kbErrorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -297,6 +445,10 @@ class AIService {
     audioFile: File | Buffer | Blob,
     options?: SpeechToTextRequest,
   ): Promise<string> {
+    if (!this.isOmniflowConfigured()) {
+      return '本地模式下暂不支持音频转文字。';
+    }
+
     try {
       const formData = new FormData();
 
@@ -372,6 +524,10 @@ class AIService {
       appLink?: string;
     },
   ): Promise<SearchResult[]> {
+    if (!this.isOmniflowConfigured()) {
+      return [];
+    }
+
     const response = await axios.post(
       `${this.baseUrl}/v1/knowledge-base/${knowledgeBaseId}/search`,
       {

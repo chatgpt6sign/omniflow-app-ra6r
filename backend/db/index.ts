@@ -12,9 +12,13 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// SSL is enabled by default (required by OmniFlow-managed Postgres).
+// Set DATABASE_SSL=false for local Postgres without TLS.
+const useSSL = process.env.DATABASE_SSL !== 'false';
+
 // Database connection with connection pooling
 const client = postgres(process.env.DATABASE_URL, {
-  ssl: { rejectUnauthorized: false },
+  ...(useSSL ? { ssl: { rejectUnauthorized: false } } : {}),
   max: 10, // Set pool size
   idle_timeout: 20, // Idle connection timeout in seconds
   connect_timeout: 10, // Connection timeout in seconds

@@ -4,13 +4,16 @@ import path from 'path';
 
 // API route imports
 import aiRoutes from './routes/ai';
+import authRoutes from './routes/auth';
 import subscriptionRoutes from './routes/subscriptions';
+import ledgerRoutes from './routes/ledger';
 
 // Configuration
 import { SERVER_CONFIG } from './config/constants';
 
 // Middleware
 import { errorHandler } from './middleware/errorHandler';
+import { requireAuth } from './middleware/auth';
 
 const app = express();
 
@@ -67,8 +70,10 @@ app.use(express.json());
 /**
  * API Routes
  */
-app.use('/api/ai', aiRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/ai', requireAuth, aiRoutes);
+app.use('/api/subscriptions', requireAuth, subscriptionRoutes);
+app.use('/api/ledger', requireAuth, ledgerRoutes);
 
 /**
  * SPA Fallback Route

@@ -4,10 +4,11 @@ import { insertSubscriptionSchema, updateSubscriptionSchema, insertBudgetSchema 
 
 const router = Router();
 
-// GET all subscriptions
-router.get('/', async (_req: Request, res: Response) => {
+// GET all subscriptions (current user)
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const data = await subscriptionRepository.findAll();
+    const userId = req.userId as string;
+    const data = await subscriptionRepository.findAll(userId);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error fetching subscriptions:', error);
@@ -18,8 +19,9 @@ router.get('/', async (_req: Request, res: Response) => {
 // GET single subscription
 router.get('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.userId as string;
     const id = req.params.id as string;
-    const data = await subscriptionRepository.findById(id);
+    const data = await subscriptionRepository.findById(id, userId);
     if (!data) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data });
   } catch (error) {
@@ -31,7 +33,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST create subscription
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const parsed = insertSubscriptionSchema.safeParse(req.body);
+    const userId = req.userId as string;
+    const parsed = insertSubscriptionSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: parsed.error.message });
     }
@@ -46,12 +49,13 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT update subscription
 router.put('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.userId as string;
     const id = req.params.id as string;
-    const parsed = updateSubscriptionSchema.safeParse(req.body);
+    const parsed = updateSubscriptionSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: parsed.error.message });
     }
-    const data = await subscriptionRepository.update(id, parsed.data);
+    const data = await subscriptionRepository.update(id, userId, parsed.data);
     if (!data) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data });
   } catch (error) {
@@ -63,8 +67,9 @@ router.put('/:id', async (req: Request, res: Response) => {
 // DELETE subscription
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.userId as string;
     const id = req.params.id as string;
-    const ok = await subscriptionRepository.delete(id);
+    const ok = await subscriptionRepository.delete(id, userId);
     if (!ok) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: null });
   } catch (error) {
@@ -74,9 +79,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // GET budget
-router.get('/budget/settings', async (_req: Request, res: Response) => {
+router.get('/budget/settings', async (req: Request, res: Response) => {
   try {
-    const data = await subscriptionRepository.getBudget();
+    const userId = req.userId as string;
+    const data = await subscriptionRepository.getBudget(userId);
     res.json({ success: true, data: data || { monthlyLimit: '500' } });
   } catch (error) {
     console.error('Error fetching budget:', error);
@@ -87,11 +93,12 @@ router.get('/budget/settings', async (_req: Request, res: Response) => {
 // PUT upsert budget
 router.put('/budget/settings', async (req: Request, res: Response) => {
   try {
-    const parsed = insertBudgetSchema.safeParse(req.body);
+    const userId = req.userId as string;
+    const parsed = insertBudgetSchema.safeParse({ ...req.body, userId });
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: parsed.error.message });
     }
-    const data = await subscriptionRepository.upsertBudget(parsed.data);
+    const data = await subscriptionRepository.upsertBudget(userId, parsed.data);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error updating budget:', error);

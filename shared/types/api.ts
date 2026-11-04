@@ -49,6 +49,83 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+// ---------- Auth ----------
+export interface User {
+  id: string;
+  username: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  username: string;
+  password: string;
+}
+
+// ---------- Ledger (手动记账 + AI 自动记账) ----------
+export interface LedgerEntry {
+  id: string;
+  userId?: string;
+  type: 'income' | 'expense';
+  amount: string;
+  category: string;
+  description?: string | null;
+  source: 'manual' | 'ai';
+  occurredAt: string; // YYYY-MM-DD
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface CreateLedgerRequest {
+  type: 'income' | 'expense';
+  amount: string;
+  category: string;
+  description?: string;
+  occurredAt: string;
+  source?: 'manual' | 'ai';
+}
+
+export type UpdateLedgerRequest = Partial<CreateLedgerRequest>;
+
+export interface LedgerSummary {
+  income: number;
+  expense: number;
+  balance: number;
+  count: number;
+}
+
+// ---------- AI transfer parsing ----------
+export interface ParsedTransfer {
+  matched: boolean;
+  type: 'income' | 'expense';
+  amount: string;
+  category: string;
+  description: string;
+  occurredAt: string;
+  raw: string;
+}
+
+export const LEDGER_CATEGORIES = [
+  { value: 'food', label: '餐饮', icon: '🍜' },
+  { value: 'transport', label: '交通', icon: '🚌' },
+  { value: 'shopping', label: '购物', icon: '🛍️' },
+  { value: 'housing', label: '居住', icon: '🏠' },
+  { value: 'entertainment', label: '娱乐', icon: '🎬' },
+  { value: 'medical', label: '医疗', icon: '💊' },
+  { value: 'education', label: '教育', icon: '📚' },
+  { value: 'salary', label: '工资收入', icon: '💼' },
+  { value: 'transfer', label: '转账', icon: '🔄' },
+  { value: 'other', label: '其他', icon: '📦' },
+] as const;
+
 export const CATEGORIES = [
   { value: 'entertainment', label: '娱乐', color: '#8B5CF6' },
   { value: 'productivity', label: '办公效率', color: '#3B82F6' },

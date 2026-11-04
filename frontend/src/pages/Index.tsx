@@ -1,17 +1,20 @@
 import { useState } from 'react';
-import { LayoutDashboard, CreditCard, Bot, Menu, X, Wallet } from 'lucide-react';
+import { LayoutDashboard, CreditCard, Bot, Menu, X, Wallet, NotebookPen, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/sonner';
 import OmniflowBadge from '@/components/custom/OmniflowBadge';
+import { useAuth } from '@/contexts/AuthContext';
 import DashboardView from './DashboardView';
 import SubscriptionsView from './SubscriptionsView';
+import LedgerView from './LedgerView';
 import AIChatView from './AIChatView';
 
-type View = 'dashboard' | 'subscriptions' | 'ai';
+type View = 'dashboard' | 'subscriptions' | 'ledger' | 'ai';
 
 const NAV_ITEMS: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: '概览', icon: <LayoutDashboard className="w-5 h-5" /> },
   { id: 'subscriptions', label: '订阅', icon: <CreditCard className="w-5 h-5" /> },
+  { id: 'ledger', label: '记账', icon: <NotebookPen className="w-5 h-5" /> },
   { id: 'ai', label: 'AI 助手', icon: <Bot className="w-5 h-5" /> },
 ];
 
@@ -19,6 +22,7 @@ export default function Index() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const { user, logout } = useAuth();
 
   const handleDataChange = () => {
     setDashboardRefreshKey(k => k + 1);
@@ -27,6 +31,10 @@ export default function Index() {
   const handleNavClick = (view: View) => {
     setCurrentView(view);
     setMobileMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
   };
 
   return (
@@ -61,6 +69,17 @@ export default function Index() {
             ))}
           </nav>
 
+          {/* Right: user + logout (desktop) */}
+          <div className="hidden sm:flex items-center gap-3">
+            <span className="text-sm text-muted-foreground max-w-[120px] truncate">
+              {user?.username || ''}
+            </span>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="cursor-pointer text-muted-foreground">
+              <LogOut className="w-4 h-4 mr-1" />
+              退出
+            </Button>
+          </div>
+
           {/* Mobile Menu Toggle */}
           <Button
             variant="ghost"
@@ -91,6 +110,13 @@ export default function Index() {
                 {item.label}
               </button>
             ))}
+            <div className="flex items-center justify-between px-3 py-2.5 border-t border-border mt-1">
+              <span className="text-sm text-muted-foreground truncate">{user?.username || ''}</span>
+              <Button variant="ghost" size="sm" onClick={handleLogout} className="cursor-pointer text-muted-foreground">
+                <LogOut className="w-4 h-4 mr-1" />
+                退出
+              </Button>
+            </div>
           </div>
         )}
       </header>
@@ -102,6 +128,9 @@ export default function Index() {
         )}
         {currentView === 'subscriptions' && (
           <SubscriptionsView onDataChange={handleDataChange} />
+        )}
+        {currentView === 'ledger' && (
+          <LedgerView onDataChange={handleDataChange} />
         )}
         {currentView === 'ai' && (
           <AIChatView />

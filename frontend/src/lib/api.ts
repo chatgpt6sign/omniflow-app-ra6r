@@ -1,10 +1,33 @@
 import { API_BASE_URL } from '@/config/constants';
-import type { ApiResponse, Subscription, CreateSubscriptionRequest, UpdateSubscriptionRequest, BudgetSettings } from '@shared/types/api';
+import type {
+  ApiResponse,
+  Subscription,
+  CreateSubscriptionRequest,
+  UpdateSubscriptionRequest,
+  BudgetSettings,
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
+  User,
+  LedgerEntry,
+  CreateLedgerRequest,
+  UpdateLedgerRequest,
+  LedgerSummary,
+  ParsedTransfer,
+} from '@shared/types/api';
+
+function getToken(): string {
+  return localStorage.getItem('token') || '';
+}
 
 class ApiService {
   private async request<T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> {
+    const token = getToken();
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       ...options,
     });
     if (!res.ok) {
@@ -14,7 +37,26 @@ class ApiService {
     return res.json() as Promise<ApiResponse<T>>;
   }
 
-  // Subscriptions
+  // ---------- Auth ----------
+  async register(data: RegisterRequest): Promise<ApiResponse<AuthResponse>> {
+    return this.request<AuthResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async login(data: LoginRequest): Promise<ApiResponse<AuthResponse>> {
+    return this.request<AuthResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async me(): Promise<ApiResponse<User>> {
+    return this.request<User>('/api/auth/me');
+  }
+
+  // ---------- Subscriptions ----------
   async getSubscriptions(): Promise<ApiResponse<Subscription[]>> {
     return this.request<Subscription[]>('/api/subscriptions');
   }
@@ -37,7 +79,7 @@ class ApiService {
     return this.request<null>(`/api/subscriptions/${id}`, { method: 'DELETE' });
   }
 
-  // Budget
+  // ---------- Budget ----------
   async getBudget(): Promise<ApiResponse<BudgetSettings>> {
     return this.request<BudgetSettings>('/api/subscriptions/budget/settings');
   }
@@ -49,15 +91,59 @@ class ApiService {
     });
   }
 
+  // ---------- Ledger (手动记账 / AI 自动记账) ----------
+  async getLedger(): Promise<ApiResponse<LedgerEntry[]>> {
+    return this.request<LedgerEntry[]>('/api/ledger');
+  }
+
+  async getLedgerSummary(month?: string): Promise<ApiResponse<LedgerSummary>> {
+    const q = month ? `?month=${month}` : '';
+    return this.request<LedgerSummary>(`/api/ledger/summary${q}`);
+  }
+
+  async getRecentLedger(limit = 10): Promise<ApiResponse<LedgerEntry[]>> {
+    return this.request<LedgerEntry[]>(`/api/ledger/recent?limit=${limit}`);
+  }
+
+  async createLedger(data: CreateLedgerRequest): Promise<ApiResponse<LedgerEntry>> {
+    return this.request<LedgerEntry>('/api/ledger', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateLedger(id: string, data: UpdateLedgerRequest): Promise<ApiResponse<LedgerEntry>> {
+    return this.request<LedgerEntry>(`/api/ledger/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteLedger(id: string): Promise<ApiResponse<null>> {
+    return this.request<null>(`/api/ledger/${id}`, { method: 'DELETE' });
+  }
+
+  // ---------- AI: parse transfer text ----------
+  async parseTransfer(text: string): Promise<ApiResponse<ParsedTransfer>> {
+    return this.request<ParsedTransfer>('/api/ai/parse-transfer', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
   // AI Chat (streaming)
   async sendChatMessage(
     message: string,
     systemPrompt: string,
     onChunk: (chunk: string) => void
   ): Promise<void> {
+    const token = getToken();
     const response = await fetch(`${API_BASE_URL}/api/ai/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ message, systemPrompt }),
     });
 

@@ -4,24 +4,26 @@ import {
   useState,
   useEffect,
   ReactNode,
+  useCallback,
 } from 'react';
+import { apiService } from '@/lib/api';
+import type { User } from '@shared/types/api';
 
 interface AuthContextType {
   isAuthenticated: boolean | null;
+  user: User | null;
   setIsAuthenticated: (value: boolean) => void;
-  login: (token: string) => void;
+  login: (token: string, user: User) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  // Initialize state directly from localStorage during render (lazy initialization)
-  // This avoids synchronous setState in useEffect which causes cascading renders
+  const [user, setUser] = useState<User | null>(null);
+  // null = checking with backend, false = not logged in, true = logged in
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(() => {
     const token = localStorage.getItem('token');
-    // If no token, we know user is not authenticated
-    // If token exists, return null (checking state) to verify with backend
     return token ? null : false;
   });
 
@@ -29,41 +31,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        // Already handled in initial state
+        setIsAuthenticated(false);
         return;
       }
       try {
-        const response = await fetch('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await response.json();
-        setIsAuthenticated(data.success);
-        if (!data.success) {
+        const res = await apiService.me();
+        if (res.success) {
+          setUser(res.data);
+          setIsAuthenticated(true);
+        } else {
           localStorage.removeItem('token');
+          setUser(null);
+          setIsAuthenticated(false);
         }
       } catch {
-        setIsAuthenticated(false);
         localStorage.removeItem('token');
+        setUser(null);
+        setIsAuthenticated(false);
       }
     };
     checkAuth();
   }, []);
 
-  const login = (token: string) => {
+  const login = useCallback((token: string, u: User) => {
     localStorage.setItem('token', token);
+    setUser(u);
     setIsAuthenticated(true);
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
+    setUser(null);
     setIsAuthenticated(false);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, setIsAuthenticated, login, logout }}
+      value={{ isAuthenticated, user, setIsAuthenticated, login, logout }}
     >
       {children}
     </AuthContext.Provider>

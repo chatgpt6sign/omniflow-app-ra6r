@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { ErrorRequestHandler } from 'express';
 import path from 'path';
+import fs from 'fs';
 
 // API route imports
 import aiRoutes from './routes/ai';
@@ -35,8 +36,24 @@ app.use((req, res, next) => {
 
 /**
  * Static Files
+ * Resolve the frontend build folder robustly across run modes:
+ *  - dev: `tsx backend/server.ts`        -> <root>/frontend/dist
+ *  - compiled: `node dist/backend/server.js` -> <root>/frontend/dist
+ *  - cwd-based runners (OmniFlow etc.)   -> <cwd>/frontend/dist
  */
-const REACT_BUILD_FOLDER = path.join(__dirname, '..', 'frontend', 'dist');
+const REACT_BUILD_CANDIDATES = [
+  path.join(__dirname, '..', 'frontend', 'dist'),
+  path.join(__dirname, '..', '..', 'frontend', 'dist'),
+  path.join(process.cwd(), 'frontend', 'dist'),
+];
+const REACT_BUILD_FOLDER =
+  REACT_BUILD_CANDIDATES.find((candidate) => {
+    try {
+      return fs.existsSync(path.join(candidate, 'index.html'));
+    } catch {
+      return false;
+    }
+  }) ?? REACT_BUILD_CANDIDATES[0];
 app.use(
   express.static(REACT_BUILD_FOLDER, {
     setHeaders: (res, path) => {
